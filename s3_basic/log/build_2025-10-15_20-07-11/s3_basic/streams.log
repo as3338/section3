@@ -1,0 +1,14 @@
+[0.012s] Invoking command in '/home/aa274/autonomy_ws/src/section3/s3_basic/build/s3_basic': CMAKE_PREFIX_PATH=${CMAKE_PREFIX_PATH}:/opt/ros/humble /usr/bin/cmake --build /home/aa274/autonomy_ws/src/section3/s3_basic/build/s3_basic -- -j8 -l8
+[0.059s] Invoked command in '/home/aa274/autonomy_ws/src/section3/s3_basic/build/s3_basic' returned '0': CMAKE_PREFIX_PATH=${CMAKE_PREFIX_PATH}:/opt/ros/humble /usr/bin/cmake --build /home/aa274/autonomy_ws/src/section3/s3_basic/build/s3_basic -- -j8 -l8
+[0.094s] Invoking command in '/home/aa274/autonomy_ws/src/section3/s3_basic/build/s3_basic': CMAKE_PREFIX_PATH=${CMAKE_PREFIX_PATH}:/opt/ros/humble /usr/bin/cmake --install /home/aa274/autonomy_ws/src/section3/s3_basic/build/s3_basic
+[0.103s] -- Install configuration: "RelWithDebInfo"
+[0.103s] -- Execute custom install script
+[0.104s] [31mCMake Error at ament_cmake_symlink_install/ament_cmake_symlink_install.cmake:204 (message):
+[0.104s]   ament_cmake_symlink_install_programs() can't find
+[0.104s]   '/home/aa274/autonomy_ws/src/section3/s3_basic/scripts/constant_control.py'
+[0.104s] Call Stack (most recent call first):
+[0.104s]   ament_cmake_symlink_install/ament_cmake_symlink_install.cmake:314 (ament_cmake_symlink_install_programs)
+[0.104s]   cmake_install.cmake:46 (include)
+[0.104s] 
+[0.104s] [0m
+[0.105s] Invoked command in '/home/aa274/autonomy_ws/src/section3/s3_basic/build/s3_basic' returned '1': CMAKE_PREFIX_PATH=${CMAKE_PREFIX_PATH}:/opt/ros/humble /usr/bin/cmake --install /home/aa274/autonomy_ws/src/section3/s3_basic/build/s3_basic
