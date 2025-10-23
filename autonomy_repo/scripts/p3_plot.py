@@ -33,7 +33,7 @@ class PlottingNode(Node):
         if not self.plotted:
             msg = TurtleBotState()
             msg.theta = self.goal
-            self.pub.publish(msg)
+            self.pub.publish(msg)#src/section3/autonomy_repo/
 
 
     def plot_cb(self, msg: TurtleBotState):
@@ -60,7 +60,7 @@ class PlottingNode(Node):
         ax.set_xlabel("Time (s)")
         ax.set_ylabel("Theta")
         fig.legend()
-        filename = Path("src/autonomy_repo/plots/p3_output.png")
+        filename = Path("src/section3/autonomy_repo/plots/p3_output.png") #~/autonomy_ws/src/section3/autonomy_repo
         try:
             fig.savefig(filename)  # save the figure to file
         except OSError as e:
