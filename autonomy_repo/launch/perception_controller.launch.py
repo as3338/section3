@@ -41,13 +41,10 @@ def generate_launch_description():
                 executable="state_publisher.py",
                 package="asl_tb3_lib",
             ),
-            
-            # --- MODIFIED PART --- 
+            # student's heading controller node
             Node(
-                executable="perception_controller.py", # Changed from heading_controller.py
+                executable="perception_controller.py",
                 package="autonomy_repo",
-                name="perception_controller" # Explicitly name the node
             ),
-            # --- END MODIFIED PART ---
         ]
     )
