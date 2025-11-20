@@ -1,12 +1,11 @@
 #!/usr/bin/env python3
 import rclpy
 from rclpy.node import Node
+from rclpy.qos import QoSProfile, ReliabilityPolicy, DurabilityPolicy
 import numpy as np
 from scipy.signal import convolve2d
-from geometry_msgs.msg import PoseStamped
 from nav_msgs.msg import OccupancyGrid
 from std_msgs.msg import Bool
-# Adjust this import if your workspace uses a different message type for state
 from asl_tb3_lib.msg import TurtlebotState 
 
 class StochOccupancyGrid2D(object):
@@ -34,9 +33,9 @@ class FrontierExplorer(Node):
         super().__init__('frontier_explorer')
 
         # Parameters
-        self.window_size = 13  # Window size for exploration heuristics
-        self.stop_duration = 5.0 # Seconds to stop for a stop sign
-        self.ignore_duration = 3.0 # Seconds to ignore detections after resuming
+        self.window_size = 13  # Window size for exploration heuristics [cite: 235]
+        self.stop_duration = 5.0 # Seconds to stop for a stop sign [cite: 42]
+        self.ignore_duration = 3.0 # Seconds to ignore detections after resuming [cite: 45]
         
         # State variables
         self.map_data = None
@@ -48,20 +47,32 @@ class FrontierExplorer(Node):
         self.last_resume_time = 0.0
         self.stop_timer = None
         
-        # Publishers
-        self.cmd_nav_pub = self.create_publisher(PoseStamped, '/cmd_nav', 10)
+        # Publisher: Sending Goals to Navigator
+        # CHANGED: Uses TurtlebotState instead of PoseStamped
+        self.cmd_nav_pub = self.create_publisher(TurtlebotState, '/cmd_nav', 10)
 
-        # Subscribers
-        self.create_subscription(OccupancyGrid, '/map', self.map_callback, 10)
+        # Subscriber: Map
+        # CHANGED: Added QoS to ensure we receive the map from map_server
+        map_qos = QoSProfile(
+            depth=10,
+            durability=DurabilityPolicy.TRANSIENT_LOCAL,
+            reliability=ReliabilityPolicy.RELIABLE
+        )
+        self.create_subscription(OccupancyGrid, '/map', self.map_callback, map_qos)
+
+        # Subscriber: Robot State
         self.create_subscription(TurtlebotState, '/state', self.state_callback, 10)
+
+        # Subscriber: Nav Success
         self.create_subscription(Bool, '/nav_success', self.nav_success_callback, 10)
         
-        # Task 4.1: Subscribe to detector
+        # Subscriber: Detector (Task 4.1)
         self.create_subscription(Bool, '/detector_bool', self.detector_callback, 10)
 
-        self.get_logger().info("Frontier Explorer Node Started (with Object Detection)")
+        self.get_logger().info("Frontier Explorer Node Started (TurtlebotState Edition)")
 
     def state_callback(self, msg):
+        """Updates the robot's internal state representation[cite: 267]."""
         self.robot_pose = np.array([msg.x, msg.y])
 
     def map_callback(self, msg):
@@ -71,7 +82,7 @@ class FrontierExplorer(Node):
             self.plan_next_frontier()
 
     def nav_success_callback(self, msg):
-        # If paused, ignore nav success (likely caused by our stop command)
+        """Triggered when the navigator reaches a goal or fails[cite: 262]."""
         if self.is_paused:
             return
 
@@ -80,50 +91,37 @@ class FrontierExplorer(Node):
             self.plan_next_frontier()
 
     def detector_callback(self, msg):
-        """
-        Task 4.1: Handle stop sign detections.
-        """
-        # If no stop sign (false) or already paused, do nothing
+        """Handle stop sign detections[cite: 41]."""
         if not msg.data or self.is_paused:
             return
 
         current_time = self.get_clock().now().nanoseconds / 1e9
         
-        # Check if we are in the "ignore" window after recently resuming
+        # Check ignore window
         if (current_time - self.last_resume_time) < self.ignore_duration:
             return
 
-        # Trigger Stop Sequence
         self.get_logger().info("Stop sign detected! Pausing exploration for 5 seconds.")
         self.is_paused = True
         self.stop_robot()
         
-        # Schedule resume
         self.stop_timer = self.create_timer(self.stop_duration, self.resume_exploration)
 
     def stop_robot(self):
         """Stops the robot by sending a goal at its current location."""
         if self.robot_pose is not None:
-            msg = PoseStamped()
-            msg.header.stamp = self.get_clock().now().to_msg()
-            msg.header.frame_id = "map"
-            msg.pose.position.x = float(self.robot_pose[0])
-            msg.pose.position.y = float(self.robot_pose[1])
-            msg.pose.orientation.w = 1.0
-            self.cmd_nav_pub.publish(msg)
+            # Send current pose as goal to stop
+            self.publish_goal(self.robot_pose)
 
     def resume_exploration(self):
-        """Resumes exploration after the pause duration."""
         self.get_logger().info("Resuming exploration...")
         self.is_paused = False
         self.last_resume_time = self.get_clock().now().nanoseconds / 1e9
         
-        # Clean up timer
         if self.stop_timer is not None:
             self.stop_timer.cancel()
             self.stop_timer = None
             
-        # Immediately plan next frontier
         self.plan_next_frontier()
 
     def plan_next_frontier(self):
@@ -153,7 +151,7 @@ class FrontierExplorer(Node):
             thresh=0.5
         )
 
-        # 2. Execute Exploration Heuristics
+        # 2. Execute Exploration Heuristics [cite: 235]
         frontier_states = self.explore(occupancy)
 
         # 3. Select and Publish Goal
@@ -161,12 +159,16 @@ class FrontierExplorer(Node):
             distances = np.linalg.norm(frontier_states - self.robot_pose, axis=1)
             closest_idx = np.argmin(distances)
             target_state = frontier_states[closest_idx]
+            
+            # Publish the new goal
             self.publish_goal(target_state)
         else:
-            self.get_logger().info("No valid frontiers found.")
+            self.get_logger().info("No valid frontiers found. Retrying on next map update...")
+            # CRITICAL FIX: Reset flag so we try again when map updates
+            self.is_exploring = False
 
     def explore(self, occupancy):
-        """Applies heuristics to find valid frontier states."""
+        """Applies heuristics to find valid frontier states[cite: 200, 201, 202]."""
         window_size = self.window_size
         window = np.ones((window_size, window_size))
         total_cells = window_size * window_size
@@ -192,12 +194,13 @@ class FrontierExplorer(Node):
         return occupancy.grid2state(valid_indices_xy)
 
     def publish_goal(self, state_xy):
-        msg = PoseStamped()
-        msg.header.stamp = self.get_clock().now().to_msg()
-        msg.header.frame_id = "map"
-        msg.pose.position.x = float(state_xy[0])
-        msg.pose.position.y = float(state_xy[1])
-        msg.pose.orientation.w = 1.0
+        """
+        Publishes a goal using TurtlebotState msg (x, y, theta).
+        """
+        msg = TurtlebotState()
+        msg.x = float(state_xy[0])
+        msg.y = float(state_xy[1])
+        msg.theta = 0.0 # Frontier exploration targets positions; theta is 0 by default
         self.cmd_nav_pub.publish(msg)
 
 def main(args=None):
