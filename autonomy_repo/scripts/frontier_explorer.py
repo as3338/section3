@@ -3,14 +3,9 @@ import rclpy
 from rclpy.node import Node
 import numpy as np
 from scipy.signal import convolve2d
-from geometry_msgs.msg import PoseStamped
 from nav_msgs.msg import OccupancyGrid
 from std_msgs.msg import Bool
-# Adjust this import if your workspace uses a different message type for state
-from asl_tb3_msgs.msg import TurtleBotControl
 from asl_tb3_msgs.msg import TurtleBotState
-from std_msgs.msg import Bool 
-from nav_msgs.msg import Odometry
 
 class StochOccupancyGrid2D(object):
     """
@@ -36,7 +31,7 @@ class FrontierExplorer(Node):
     def __init__(self):
         super().__init__('frontier_explorer')
 
-        # Parameters
+        # Parameters from HW4 Section 7
         self.window_size = 13  # Window size for exploration heuristics
         self.stop_duration = 5.0 # Seconds to stop for a stop sign
         self.ignore_duration = 3.0 # Seconds to ignore detections after resuming
@@ -44,8 +39,8 @@ class FrontierExplorer(Node):
         # State variables
         self.map_data = None
         self.robot_pose = None # [x, y]
+        self.robot_theta = 0.0 # Track theta for proper stopping
         self.is_exploring = False
-        self.init = True
         
         # Pause/Resume Logic variables
         self.is_paused = False
@@ -53,48 +48,40 @@ class FrontierExplorer(Node):
         self.stop_timer = None
         
         # Publishers
-        # publish a TurtleBotState on /cmd_nav so Navigator (which subscribes to
-        # TurtleBotState) receives the goal. Previously some code used PoseStamped
-        # which causes a type mismatch and the navigator will not receive goals.
         self.cmd_nav_pub = self.create_publisher(TurtleBotState, '/cmd_nav', 10)
 
         # Subscribers
         self.create_subscription(OccupancyGrid, '/map', self.map_callback, 10)
         self.create_subscription(TurtleBotState, '/state', self.state_callback, 10)
         self.create_subscription(Bool, '/nav_success', self.nav_success_callback, 10)
-        
-        # Task 4.1: Subscribe to detector
         self.create_subscription(Bool, '/detector_bool', self.detector_callback, 10)
 
-        self.get_logger().info("Frontier Explorer Node Started (with Object Detection)")
+        self.get_logger().info("Frontier Explorer Node Started")
 
     def state_callback(self, msg):
+        # Just update state. DO NOT PLAN HERE.
         self.robot_pose = np.array([msg.x, msg.y])
-        self.plan_next_frontier()
+        self.robot_theta = msg.theta
 
     def map_callback(self, msg: OccupancyGrid):
         self.map_data = msg
         # If we have a map and pose but haven't started, trigger the first plan
-        # if not self.is_exploring and not self.is_paused and self.robot_pose is not None:
-        #     self.plan_next_frontier()
-        if self.init:
-            if self.robot_pose is not None:
-                self.plan_next_frontier()
-                self.init = False
+        if not self.is_exploring and not self.is_paused and self.robot_pose is not None:
+             self.get_logger().info("Map received. Starting exploration...")
+             self.plan_next_frontier()
 
     def nav_success_callback(self, msg):
         # If paused, ignore nav success (likely caused by our stop command)
         if self.is_paused:
             return
 
+        # If navigation finished (success or fail), plan next
         if self.is_exploring:
             self.get_logger().info(f"Navigation finished (Success: {msg.data}). Planning next frontier...")
             self.plan_next_frontier()
 
     def detector_callback(self, msg):
-        """
-        Task 4.1: Handle stop sign detections.
-        """
+        # Task 4.1: Handle stop sign detections.
         # If no stop sign (false) or already paused, do nothing
         if not msg.data or self.is_paused:
             return
@@ -119,8 +106,8 @@ class FrontierExplorer(Node):
             msg = TurtleBotState()
             msg.x = float(self.robot_pose[0])
             msg.y = float(self.robot_pose[1])
-            # keep heading as-is (unknown here), set default 0.0
-            msg.theta = 0.0
+            # IMPORTANT: Use current theta so it doesn't spin away from the stop sign
+            msg.theta = float(self.robot_theta)
             self.cmd_nav_pub.publish(msg)
             self.get_logger().info(f"Published stop goal at ({msg.x:.2f}, {msg.y:.2f})")
 
@@ -153,6 +140,8 @@ class FrontierExplorer(Node):
         
         raw_data = np.array(self.map_data.data)
         probs = np.full(raw_data.shape, -1.0)
+        
+        # Fix data mapping: 0..100 -> 0.0..1.0
         known_mask = (raw_data != -1)
         probs[known_mask] = raw_data[known_mask] / 100.0
 
@@ -205,15 +194,11 @@ class FrontierExplorer(Node):
         return occupancy.grid2state(valid_indices_xy)
 
     def publish_goal(self, state_xy):
-        # Publish a TurtleBotState message (x, y, theta) on /cmd_nav so the
-        # Navigator (which subscribes to TurtleBotState) receives the goal.
         msg = TurtleBotState()
         msg.x = float(state_xy[0])
         msg.y = float(state_xy[1])
-        # set default heading; navigator will align as needed
-        msg.theta = 0.0
+        msg.theta = 0.0 # Orientation doesn't matter much for exploration, 0 is fine
         self.cmd_nav_pub.publish(msg)
-        #self.get_logger().info(f"Published new navigation goal at ({state_xy[0]:.2f}, {state_xy[1]:.2f})")
 
 def main(args=None):
     rclpy.init(args=args)
